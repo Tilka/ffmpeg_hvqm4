@@ -469,6 +469,8 @@ library:
          playout servers.
 @item HNM @tab   @tab X
     @tab Only version 4 supported, used in some games from Cryo Interactive
+@item HVQM4                     @tab   @tab X
+    @tab File extension .h4m
 @item iCEDraw File              @tab   @tab X
 @item ICO                       @tab X @tab X
     @tab Microsoft Windows ICO
@@ -892,6 +894,7 @@ following image formats are supported:
 @item HNM version 4          @tab     @tab  X
 @item HuffYUV                @tab  X  @tab  X
 @item HuffYUV FFmpeg variant @tab  X  @tab  X
+@item HVQM4                  @tab     @tab  X
 @item IBM Ultimotion         @tab     @tab  X
     @tab fourcc: ULTI
 @item id Cinematic video     @tab     @tab  X

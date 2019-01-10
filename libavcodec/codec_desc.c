@@ -1404,6 +1404,13 @@ static const AVCodecDescriptor codec_descriptors[] = {
         .props     = AV_CODEC_PROP_LOSSY,
     },
     {
+        .id        = AV_CODEC_ID_HVQM4,
+        .type      = AVMEDIA_TYPE_VIDEO,
+        .name      = "hvqm4",
+        .long_name = NULL_IF_CONFIG_SMALL("Hudson HVQM4 video"),
+        .props     = AV_CODEC_PROP_LOSSY | AV_CODEC_PROP_REORDER,
+    },
+    {
         .id        = AV_CODEC_ID_Y41P,
         .type      = AVMEDIA_TYPE_VIDEO,
         .name      = "y41p",

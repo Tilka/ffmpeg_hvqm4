@@ -226,6 +226,7 @@ OBJS-$(CONFIG_HEVC_MUXER)                += rawenc.o
 OBJS-$(CONFIG_HLS_DEMUXER)               += hls.o
 OBJS-$(CONFIG_HLS_MUXER)                 += hlsenc.o hlsplaylist.o
 OBJS-$(CONFIG_HNM_DEMUXER)               += hnm.o
+OBJS-$(CONFIG_HVQM4_DEMUXER)             += hvqm4.o
 OBJS-$(CONFIG_ICO_DEMUXER)               += icodec.o
 OBJS-$(CONFIG_ICO_MUXER)                 += icoenc.o
 OBJS-$(CONFIG_IDCIN_DEMUXER)             += idcin.o

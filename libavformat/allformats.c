@@ -175,6 +175,7 @@ extern AVInputFormat  ff_h263_demuxer;
 extern AVOutputFormat ff_h263_muxer;
 extern AVInputFormat  ff_h264_demuxer;
 extern AVOutputFormat ff_h264_muxer;
+extern AVInputFormat  ff_hvqm4_demuxer;
 extern AVOutputFormat ff_hash_muxer;
 extern AVInputFormat  ff_hcom_demuxer;
 extern AVOutputFormat ff_hds_muxer;
