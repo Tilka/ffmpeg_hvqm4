@@ -72,6 +72,11 @@ static av_cold int hvqm4_init(AVCodecContext *ctx)
 
 static av_cold int hvqm4_close(AVCodecContext *ctx)
 {
+    Hvqm4DecodeContext *h4m = ctx->priv_data;
+    free(h4m->player.past);
+    free(h4m->player.present);
+    free(h4m->player.future);
+    free(h4m->player.seqobj.state);
     return 0;
 }
 
@@ -96,36 +101,33 @@ static int hvqm4_decode(AVCodecContext *ctx, void *data, int *got_frame, AVPacke
     SeqObj *seqobj = &player->seqobj;
     int ret;
 
+    uint16_t frame_type = AV_RB16(pkt->data);
+    // FIXME: pts is GOP relative but should be global
+    frame->pts = pkt->pts = AV_RB32(pkt->data + 2);
+
     //TODO: AV_GET_BUFFER_FLAG_REF
     if ((ret = ff_reget_buffer(ctx, frame, 0)) < 0)
         return ret;
+    frame->pts = pkt->pts;
 
-    uint16_t frame_type = AV_RB16(pkt->data);
-    // FIXME: pts is GOP relative but should be global
-    pkt->pts = AV_RB32(pkt->data + 2);
-
-    // swap past and future
-    if (frame_type != HVQM4_B_FRAME) {
-        AVFrame *tmp = h4m->past;
-        h4m->past = h4m->future;
-        h4m->future = tmp;
-    }
+    if (frame_type != HVQM4_B_FRAME)
+        FFSWAP(void *, player->past, player->future);
 
     switch (frame_type)
     {
         case HVQM4_I_FRAME:
-            av_log(ctx, AV_LOG_DEBUG, "I frame\n");
-            HVQM4DecodeIpic(seqobj, pkt->data + 6, frame->data);
+            av_log(ctx, AV_LOG_DEBUG, "I frame pts:%u,%u\n", frame->pts, pkt->pts);
+            HVQM4DecodeIpic(seqobj, pkt->data + 6, player->present);
             frame->pict_type = AV_PICTURE_TYPE_I;
             break;
         case HVQM4_P_FRAME:
-            av_log(ctx, AV_LOG_DEBUG, "P frame\n");
-            HVQM4DecodePpic(seqobj, pkt->data + 6, frame->data, h4m->past->data);
+            av_log(ctx, AV_LOG_DEBUG, "P frame pts:%u,%u\n", frame->pts, pkt->pts);
+            HVQM4DecodePpic(seqobj, pkt->data + 6, player->present, player->past);
             frame->pict_type = AV_PICTURE_TYPE_P;
             break;
         case HVQM4_B_FRAME:
-            av_log(ctx, AV_LOG_DEBUG, "B frame\n");
-            HVQM4DecodeBpic(seqobj, pkt->data + 6, frame->data, h4m->past->data, h4m->future->data);
+            av_log(ctx, AV_LOG_DEBUG, "B frame pts:%u,%u\n", frame->pts, pkt->pts);
+            HVQM4DecodeBpic(seqobj, pkt->data + 6, player->present, player->past, player->future);
             frame->pict_type = AV_PICTURE_TYPE_B;
             break;
         default:
@@ -134,11 +136,18 @@ static int hvqm4_decode(AVCodecContext *ctx, void *data, int *got_frame, AVPacke
     }
     frame->key_frame = frame->pict_type == AV_PICTURE_TYPE_I;
 
-    // swap present and future
-    if (frame_type != HVQM4_B_FRAME) {
-        av_frame_unref(h4m->future);
-        av_frame_ref(h4m->future, frame);
-    }
+    if (frame_type != HVQM4_B_FRAME)
+        FFSWAP(void *, player->present, player->future);
+
+    // FIXME: ffmpeg doesn't guarantee that the planes are contiguous, so I
+    // decode them internally and then copy the planes into their respective
+    // pointers, fixing this will require changing the hvqm4-internal functions
+    uint8_t *ptr = player->present;
+    size_t y_plane_size = frame->width * frame->height;
+    size_t uv_plane_size = y_plane_size / 4;
+    memcpy(frame->data[0], ptr, y_plane_size); ptr += y_plane_size;
+    memcpy(frame->data[1], ptr, uv_plane_size); ptr += uv_plane_size;
+    memcpy(frame->data[2], ptr, uv_plane_size);
 
     *got_frame = 1;
     return pkt->size;

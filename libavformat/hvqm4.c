@@ -31,6 +31,7 @@
 
 static int hvqm4_read_probe(const AVProbeData *p)
 {
+    av_log(NULL, AV_LOG_TRACE, "hvqm4_read_probe\n");
     const char magic13[HVQM4_MAGIC_SIZE] = "HVQM4 1.3";
     const char magic15[HVQM4_MAGIC_SIZE] = "HVQM4 1.5";
     if (memcmp(p->buf, magic13, HVQM4_MAGIC_SIZE) == 0)
@@ -62,6 +63,7 @@ typedef struct
     int audio_stream_index;
 
     // current position
+    int64_t gop_start;
     uint32_t gop_index;
     uint32_t gop_video_index;
     uint32_t gop_audio_index;
@@ -71,6 +73,7 @@ typedef struct
 
 static int hvqm4_read_header(AVFormatContext *ctx)
 {
+    av_log(ctx, AV_LOG_TRACE, "hvqm4_read_header\n");
     Hvqm4DemuxContext *h4m = ctx->priv_data;
     memset(h4m, 0, sizeof(*h4m));
     AVIOContext *pb = ctx->pb;
@@ -135,9 +138,10 @@ static int hvqm4_read_header(AVFormatContext *ctx)
 
 static int hvqm4_read_packet(AVFormatContext *ctx, AVPacket *pkt)
 {
+    int ret;
     Hvqm4DemuxContext *h4m = ctx->priv_data;
     AVIOContext *pb = ctx->pb;
-    //av_log(ctx, AV_LOG_DEBUG, "hvqm4_read_packet at %u\n", avio_tell(pb));
+    //av_log(ctx, AV_LOG_TRACE, "hvqm4_read_packet at %ld\n", avio_tell(pb));
 
     // are we expecting a new GOP?
     if (h4m->gop_video_index == h4m->gop.nb_video_frames &&
@@ -148,18 +152,19 @@ static int hvqm4_read_packet(AVFormatContext *ctx, AVPacket *pkt)
             av_log(ctx, AV_LOG_DEBUG, "GOP %u/%u\n", h4m->gop_index, h4m->file.nb_gops);
 
             // read GOP header
+            h4m->gop_start = avio_tell(pb);
             h4m->gop.prev_size = avio_rb32(pb);
             h4m->gop.next_size = avio_rb32(pb);
             h4m->gop.nb_video_frames = avio_rb32(pb);
             h4m->gop.nb_audio_frames = avio_rb32(pb);
             uint32_t unknown = avio_rb32(pb);
             if (unknown != 0x01000000)
-                return AVERROR_INVALIDDATA;
+                av_log(ctx, AV_LOG_WARNING, "unexpected value in GOP header\n");
 
             h4m->gop_video_index = 0;
             h4m->gop_audio_index = 0;
         } else {
-            //av_log(ctx, AV_LOG_DEBUG, "EOF\n");
+            av_log(ctx, AV_LOG_TRACE, "hvqm4 says EOF\n");
             return AVERROR_EOF;
         }
     }
@@ -170,8 +175,7 @@ static int hvqm4_read_packet(AVFormatContext *ctx, AVPacket *pkt)
         // read frame
         uint16_t media_type = avio_rb16(pb);
         // frame type (I/P/B)
-        int ret = av_get_packet(pb, pkt, 2);
-        if (ret < 0)
+        if ((ret = av_get_packet(pb, pkt, 2)) < 0)
             return ret;
         if (ret < 2) {
             av_packet_unref(pkt);
@@ -189,15 +193,16 @@ static int hvqm4_read_packet(AVFormatContext *ctx, AVPacket *pkt)
         if (media_type == 0) {
             pkt->dts = h4m->audio_dts++;
             ++h4m->gop_audio_index;
-            av_log(ctx, AV_LOG_DEBUG, "audio packet %u/%u\n", h4m->gop_audio_index, h4m->gop.nb_audio_frames);
+            //av_log(ctx, AV_LOG_DEBUG, "audio packet %u/%u\n", h4m->gop_audio_index, h4m->gop.nb_audio_frames);
             pkt->stream_index = h4m->audio_stream_index;
         } else if (media_type == 1) {
             pkt->dts = h4m->video_dts++;
             ++h4m->gop_video_index;
-            av_log(ctx, AV_LOG_DEBUG, "video packet %u/%u\n", h4m->gop_video_index, h4m->gop.nb_video_frames);
+            //av_log(ctx, AV_LOG_DEBUG, "video packet %u/%u\n", h4m->gop_video_index, h4m->gop.nb_video_frames);
             pkt->stream_index = h4m->video_stream_index;
         } else {
             av_log(ctx, AV_LOG_ERROR, "unknown media type\n");
+            return AVERROR_INVALIDDATA;
         }
     }
     return 0;
@@ -205,12 +210,24 @@ static int hvqm4_read_packet(AVFormatContext *ctx, AVPacket *pkt)
 
 static int hvqm4_read_seek(AVFormatContext *ctx, int stream_index, int64_t timestamp, int flags)
 {
-    av_log(ctx, AV_LOG_ERROR, "hvqm4_read_seek\n");
+    av_log(ctx, AV_LOG_DEBUG, "hvqm4_read_seek %ld %d\n", timestamp, flags);
     Hvqm4DemuxContext *h4m = ctx->priv_data;
     AVStream *st = ctx->streams[stream_index];
+    AVIOContext *pb = ctx->pb;
 
-    // TODO
-    return -1;
+    if (!(pb->seekable & AVIO_SEEKABLE_NORMAL))
+        return -1;
+
+    if (avio_seek(pb, h4m->gop_start, SEEK_SET) < 0)
+        return -1;
+
+    h4m->gop_index -= 1;
+    h4m->gop_video_index = 0;
+    h4m->gop_audio_index = 0;
+    h4m->gop.nb_video_frames = 0;
+    h4m->gop.nb_audio_frames = 0;
+
+    return 0;
 }
 
 AVInputFormat ff_hvqm4_demuxer = {
