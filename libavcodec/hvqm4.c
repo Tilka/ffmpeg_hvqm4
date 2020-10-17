@@ -35,16 +35,12 @@ typedef struct
 {
     // TODO: inline Player and SeqObj
     Player player;
-    AVFrame *past;
-    AVFrame *future;
 } Hvqm4DecodeContext;
 
 static av_cold int hvqm4_init(AVCodecContext *ctx)
 {
     av_log(ctx, AV_LOG_DEBUG, "hvqm4_init\n");
     Hvqm4DecodeContext *h4m = ctx->priv_data;
-    h4m->past = av_frame_alloc();
-    h4m->future = av_frame_alloc();
     Player *player = &h4m->player;
     SeqObj *seqobj = &player->seqobj;
 
@@ -139,17 +135,30 @@ static int hvqm4_decode(AVCodecContext *ctx, void *data, int *got_frame, AVPacke
     if (frame_type != HVQM4_B_FRAME)
         FFSWAP(void *, player->present, player->future);
 
-    // FIXME: ffmpeg doesn't guarantee that the planes are contiguous, so I
-    // decode them internally and then copy the planes into their respective
-    // pointers, fixing this will require changing the hvqm4-internal functions
-    uint8_t *ptr = player->present;
-    size_t y_plane_size = frame->width * frame->height;
-    size_t uv_plane_size = y_plane_size / 4;
-    memcpy(frame->data[0], ptr, y_plane_size); ptr += y_plane_size;
-    memcpy(frame->data[1], ptr, uv_plane_size); ptr += uv_plane_size;
-    memcpy(frame->data[2], ptr, uv_plane_size);
+    if (pkt->dts > 0)
+    {
+        // FIXME: ffmpeg doesn't guarantee that the planes are contiguous, so I
+        // decode them internally and then copy the planes into their respective
+        // pointers, fixing this will require changing the hvqm4-internal functions
+        uint8_t *ptr;
+        if (frame_type == HVQM4_B_FRAME)
+            ptr = player->present;
+        else
+            ptr = player->past;
 
-    *got_frame = 1;
+        size_t y_plane_size = frame->width * frame->height;
+        size_t uv_plane_size = y_plane_size / 4;
+        memcpy(frame->data[0], ptr, y_plane_size); ptr += y_plane_size;
+        memcpy(frame->data[1], ptr, uv_plane_size); ptr += uv_plane_size;
+        memcpy(frame->data[2], ptr, uv_plane_size);
+
+        *got_frame = 1;
+    }
+    else
+    {
+        *got_frame = 0;
+    }
+
     return pkt->size;
 }
 
