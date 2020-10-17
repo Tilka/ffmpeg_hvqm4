@@ -69,6 +69,7 @@ typedef struct
     uint32_t gop_audio_index;
     uint32_t video_dts;
     uint32_t audio_dts;
+    uint32_t gop_beginning_video_pts;
 } Hvqm4DemuxContext;
 
 static int hvqm4_read_header(AVFormatContext *ctx)
@@ -133,6 +134,8 @@ static int hvqm4_read_header(AVFormatContext *ctx)
         h4m->audio_stream_index = aud->index;
     }
 
+    h4m->gop_beginning_video_pts = 1; // one frame headroom
+
     return 0;
 }
 
@@ -150,6 +153,8 @@ static int hvqm4_read_packet(AVFormatContext *ctx, AVPacket *pkt)
         if (h4m->gop_index < h4m->file.nb_gops) {
             ++h4m->gop_index;
             av_log(ctx, AV_LOG_DEBUG, "GOP %u/%u\n", h4m->gop_index, h4m->file.nb_gops);
+
+            h4m->gop_beginning_video_pts += h4m->gop.nb_video_frames;
 
             // read GOP header
             h4m->gop_start = avio_tell(pb);
@@ -174,7 +179,10 @@ static int hvqm4_read_packet(AVFormatContext *ctx, AVPacket *pkt)
 
         // read frame
         uint16_t media_type = avio_rb16(pb);
-        // frame type (I/P/B)
+        // read frame type (I/P/B)
+        uint16_t frame_type = avio_rb16(pb);
+        avio_seek(pb, -2, SEEK_CUR);
+        // forward frame type
         if ((ret = av_get_packet(pb, pkt, 2)) < 0)
             return ret;
         if (ret < 2) {
@@ -182,6 +190,9 @@ static int hvqm4_read_packet(AVFormatContext *ctx, AVPacket *pkt)
             return AVERROR(EIO);
         }
         uint32_t frame_size = avio_rb32(pb);
+        // read display order
+        uint16_t disp_id = avio_rb32(pb);
+        avio_seek(pb, -4, SEEK_CUR);
         // payload
         ret = av_append_packet(pb, pkt, frame_size);
         // FIXME: signed vs unsigned
@@ -204,6 +215,7 @@ static int hvqm4_read_packet(AVFormatContext *ctx, AVPacket *pkt)
             av_log(ctx, AV_LOG_ERROR, "unknown media type\n");
             return AVERROR_INVALIDDATA;
         }
+        pkt->pts = h4m->gop_beginning_video_pts + disp_id;
     }
     return 0;
 }
